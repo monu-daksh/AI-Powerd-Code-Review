@@ -14,7 +14,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 let userId: any = "1 OR 1=1";
 
-// Bad Practice 1: SQL Injection
+// Bad Practice 1: SQL Injection!
 const query = `SELECT * FROM users WHERE id = ${userId}`;
 
 // Bad Practice 2: Debug log left in production

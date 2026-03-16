@@ -175,5 +175,5 @@ jobs:
       - name: Fail if blocking issues
         if: steps.ai_review.outcome == 'failure' && env.EMPTY_DIFF != 'true'
         run: |
-          echo "❌ Blocking issues (critical/high) found. Please fix before merging."
+          echo "FAILED: Blocking issues (critical/high) found. Please fix before merging."
           exit 1
