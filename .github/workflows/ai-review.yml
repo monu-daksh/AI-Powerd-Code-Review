@@ -73,7 +73,7 @@ jobs:
         run: node scripts/review.mjs --diff pr.diff
         env:
           OLLAMA_BASE_URL: http://localhost:11434
-          OLLAMA_MODEL: llama3
+          OLLAMA_MODEL: qwen2.5-coder:1.5b
           # ── Future: Switch to Anthropic Claude ──────────────────────────
           # 1. Add ANTHROPIC_API_KEY to repo secrets (Settings → Secrets → Actions)
           # 2. Uncomment these 3 lines:
@@ -130,7 +130,7 @@ jobs:
               });
             }
 
-      - name: Post inline comments for critical/high issues
+      - name: h issues
         if: env.EMPTY_DIFF != 'true'
         uses: actions/github-script@v7
         with:
