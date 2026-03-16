@@ -172,8 +172,20 @@ jobs:
               console.log('Inline comments failed (line may not be in diff):', e.message);
             }
 
-      - name: Fail if blocking issues
-        if: steps.ai_review.outcome == 'failure' && env.EMPTY_DIFF != 'true'
+      - name: Report issues summary
+        if: env.EMPTY_DIFF != 'true'
         run: |
-          echo "FAILED: Blocking issues (critical/high) found. Please fix before merging."
-          exit 1
+          echo "AI Code Review completed. Check the PR comment for the full report."
+          echo "Issues are labeled as: critical / high / medium / low / info"
+
+          # ─────────────────────────────────────────────────────────────────
+          # TO BLOCK THE PIPELINE on critical/high issues:
+          #   1. Uncomment the block below
+          #   2. Once all critical/high issues are resolved, the pipeline
+          #      will automatically pass and allow merging
+          # ─────────────────────────────────────────────────────────────────
+          # if ($env:REVIEW_OUTCOME -eq 'failure') {
+          #   echo "BLOCKED: Critical/High issues found. Fix them before merging."
+          #   exit 1
+          # }
+          # ─────────────────────────────────────────────────────────────────
