@@ -25,6 +25,10 @@ jobs:
     # ─────────────────────────────────────────────────────────────────────────
     runs-on: self-hosted   # ← Change to: ubuntu-latest  if using Option B
 
+    defaults:
+      run:
+        shell: bash   # Force bash on Windows runner (uses Git Bash)
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,7 +67,7 @@ jobs:
 
       - name: Run AI review
         if: env.EMPTY_DIFF != 'true'
-        run: node scripts/review.mjs < pr.diff
+        run: node scripts/review.mjs --diff pr.diff
         env:
           OLLAMA_BASE_URL: http://localhost:11434
           OLLAMA_MODEL: llama3

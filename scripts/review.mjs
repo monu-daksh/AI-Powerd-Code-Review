@@ -24,7 +24,16 @@ const MODEL = process.env.OLLAMA_MODEL ?? "llama3";
 const AI_PROVIDER = process.env.AI_PROVIDER ?? "ollama"; // "ollama" | "anthropic"
 
 // ── Read diff from stdin ──────────────────────────────────────────────────────
-async function readStdin() {
+async function readInput() {
+  const args = process.argv.slice(2);
+  const diffFlagIdx = args.indexOf("--diff");
+
+  // --diff <file> flag (used by GitHub Actions on Windows)
+  if (diffFlagIdx !== -1 && args[diffFlagIdx + 1]) {
+    return fs.readFileSync(args[diffFlagIdx + 1], "utf-8");
+  }
+
+  // fallback: read from stdin
   const rl = readline.createInterface({ input: process.stdin });
   const lines = [];
   for await (const line of rl) lines.push(line);
@@ -150,7 +159,7 @@ function toMarkdown(report, model) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  const diff = await readStdin();
+  const diff = await readInput();
 
   if (!diff.trim()) {
     console.log("✅ No diff found — nothing to review.");
