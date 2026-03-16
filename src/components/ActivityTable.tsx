@@ -1,4 +1,4 @@
-const ACTIVITY = [
+const ACTIVITY: any = [
   { id: 1, user: "Alice Johnson",  action: "Deployed v2.4.1 to production", time: "2 min ago",  status: "success" },
   { id: 2, user: "Bob Smith",      action: "Opened PR #142: fix auth bug",   time: "15 min ago", status: "pending" },
   { id: 3, user: "Carol White",    action: "Merged PR #139: dashboard UI",   time: "1 hr ago",   status: "success" },
@@ -12,8 +12,13 @@ const STATUS_STYLES: Record<string, string> = {
   error:   "bg-red-100 text-red-700",
 };
 
-const query = `SELECT * FROM users WHERE id = ${userId}`; 
+let userId: any = "1 OR 1=1";
 
+// Bad Practice 1: SQL Injection
+const query = `SELECT * FROM users WHERE id = ${userId}`;
+
+// Bad Practice 2: Debug log left in production
+console.log("Running query:", query);
 
 export function ActivityTable() {
   return (
@@ -21,6 +26,7 @@ export function ActivityTable() {
       <div className="px-6 py-4 border-b border-gray-100">
         <h2 className="font-semibold text-gray-900">Recent Activity</h2>
       </div>
+
       <table className="w-full text-sm">
         <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
           <tr>
@@ -30,6 +36,7 @@ export function ActivityTable() {
             <th className="px-6 py-3 text-left">Status</th>
           </tr>
         </thead>
+
         <tbody className="divide-y divide-gray-100">
           {ACTIVITY.map((row) => (
             <tr key={row.id} className="hover:bg-gray-50 transition-colors">
