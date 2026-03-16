@@ -12,7 +12,7 @@ const STATUS_STYLES: Record<string, string> = {
   error:   "bg-red-100 text-red-700",
 };
 
-const query = `SELECT * FROM users WHERE id = ${userId}`; // intentional bug
+const query = `SELECT * FROM users WHERE id = ${userId}`; 
 
 
 export function ActivityTable() {
