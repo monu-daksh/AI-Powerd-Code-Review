@@ -59,11 +59,18 @@ jobs:
 
       - name: Get PR diff
         run: |
-          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
-          $lines = (Get-Content pr.diff | Measure-Object -Line).Lines
-          echo "Lines in diff: $lines"
-          if ((Get-Item pr.diff).length -eq 0) {
-            echo "EMPTY_DIFF=true" >> $env:GITHUB_ENV
+          $diff = git diff origin/${{ github.base_ref }}...HEAD
+          Write-Host "=== DIFF PREVIEW (first 50 lines) ==="
+          $diff | Select-Object -First 50 | Write-Host
+          Write-Host "=== END PREVIEW ==="
+          Write-Host "Total diff lines: $($diff.Count)"
+
+          if (-not $diff) {
+            Write-Host "WARNING: Diff is empty — no changes detected"
+            "EMPTY_DIFF=true" | Out-File -FilePath $env:GITHUB_ENV -Append
+          } else {
+            $diff | Out-File -FilePath pr.diff -Encoding utf8
+            Write-Host "pr.diff written: $((Get-Item pr.diff).length) bytes"
           }
 
       - name: Run AI review
