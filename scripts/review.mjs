@@ -45,7 +45,7 @@ JSON schema:
       "file": "exact filename",
       "line": <line number in new file>,
       "severity": "critical" | "high" | "medium" | "low",
-      "category": "security" | "bug" | "performance" | "style",
+      "category": "security" | "bug" | "performance" | "style" | "eslint" | "typescript",
       "title": "short title",
       "description": "what is wrong",
       "suggestion": "how to fix it"
@@ -56,7 +56,9 @@ JSON schema:
 Rules:
 - Only report real issues in the CHANGED lines
 - Never hallucinate issues not present in the diff
-- If code is fine, return empty issues array and score >= 85`;
+- If code is fine, return empty issues array and score >= 85
+- Report ESLint violations (any, no-explicit-any, prefer-const, unused vars etc) as category "eslint"
+- Report TypeScript type errors or missing types as category "typescript"`;
 
   const userPrompt = `Review this git diff:\n\n${diff}`;
 
