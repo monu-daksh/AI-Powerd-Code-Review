@@ -27,7 +27,7 @@ jobs:
 
     defaults:
       run:
-        shell: bash   # Force bash on Windows runner (uses Git Bash)
+        shell: pwsh   # Use PowerShell on Windows runner (no WSL/bash needed)
 
     steps:
       - name: Checkout
@@ -60,10 +60,11 @@ jobs:
       - name: Get PR diff
         run: |
           git diff origin/${{ github.base_ref }}...HEAD > pr.diff
-          echo "Lines in diff: $(wc -l < pr.diff)"
-          if [ ! -s pr.diff ]; then
-            echo "EMPTY_DIFF=true" >> $GITHUB_ENV
-          fi
+          $lines = (Get-Content pr.diff | Measure-Object -Line).Lines
+          echo "Lines in diff: $lines"
+          if ((Get-Item pr.diff).length -eq 0) {
+            echo "EMPTY_DIFF=true" >> $env:GITHUB_ENV
+          }
 
       - name: Run AI review
         if: env.EMPTY_DIFF != 'true'
