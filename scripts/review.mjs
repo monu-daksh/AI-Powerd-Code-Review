@@ -1,0 +1,208 @@
+#!/usr/bin/env node
+/**
+ * AI Code Review Script
+ *
+ * Reads the git diff from stdin, sends it to Ollama (llama3),
+ * parses the response, writes review.json, and exits 1 if
+ * critical/high issues are found (blocks the PR merge).
+ *
+ * Usage in GitHub Actions:
+ *   git diff origin/$BASE_BRANCH...HEAD | node scripts/review.mjs
+ *
+ * TODO (future): To use Anthropic Claude instead of Ollama:
+ *   1. npm install @anthropic-ai/sdk
+ *   2. Set ANTHROPIC_API_KEY in GitHub repo secrets
+ *   3. Change AI_PROVIDER=anthropic in the workflow env
+ */
+
+import fs from "fs";
+import readline from "readline";
+
+// ── Config ────────────────────────────────────────────────────────────────────
+const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+const MODEL = process.env.OLLAMA_MODEL ?? "llama3";
+const AI_PROVIDER = process.env.AI_PROVIDER ?? "ollama"; // "ollama" | "anthropic"
+
+// ── Read diff from stdin ──────────────────────────────────────────────────────
+async function readStdin() {
+  const rl = readline.createInterface({ input: process.stdin });
+  const lines = [];
+  for await (const line of rl) lines.push(line);
+  return lines.join("\n");
+}
+
+// ── Call Ollama ───────────────────────────────────────────────────────────────
+async function callOllama(diff) {
+  const systemPrompt = `You are a senior software engineer doing a code review.
+Analyze the git diff and return ONLY a JSON object — no markdown, no explanation.
+
+JSON schema:
+{
+  "summary": "2-3 sentence overall assessment",
+  "score": <number 0-100>,
+  "issues": [
+    {
+      "file": "exact filename",
+      "line": <line number in new file>,
+      "severity": "critical" | "high" | "medium" | "low",
+      "category": "security" | "bug" | "performance" | "style",
+      "title": "short title",
+      "description": "what is wrong",
+      "suggestion": "how to fix it"
+    }
+  ]
+}
+
+Rules:
+- Only report real issues in the CHANGED lines
+- Never hallucinate issues not present in the diff
+- If code is fine, return empty issues array and score >= 85`;
+
+  const userPrompt = `Review this git diff:\n\n${diff}`;
+
+  const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: MODEL,
+      prompt: userPrompt,
+      system: systemPrompt,
+      stream: false,
+      format: "json",
+      options: { temperature: 0.1, num_predict: 3000 },
+    }),
+    signal: AbortSignal.timeout(300_000), // 5 min timeout
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Ollama error ${res.status}: ${text}\nMake sure ollama is running and model "${MODEL}" is pulled.`);
+  }
+
+  const data = await res.json();
+  return data.response;
+}
+
+// TODO: Anthropic implementation (uncomment after: npm install @anthropic-ai/sdk)
+// async function callAnthropic(diff) {
+//   const Anthropic = (await import("@anthropic-ai/sdk")).default;
+//   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+//   const msg = await client.messages.create({
+//     model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
+//     max_tokens: 4096,
+//     system: systemPrompt,  // same prompt as above
+//     messages: [{ role: "user", content: userPrompt }],
+//   });
+//   return msg.content[0].text;
+// }
+
+// ── Parse AI response ─────────────────────────────────────────────────────────
+function parseResponse(raw) {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Try to extract JSON object from the response
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error("AI returned non-JSON response. Try a different model or increase context.");
+  }
+}
+
+// ── Format as Markdown for PR comment ────────────────────────────────────────
+function toMarkdown(report, model) {
+  const emoji = { critical: "🔴", high: "🟠", medium: "🟡", low: "🔵" };
+  const lines = [];
+
+  lines.push("## 🤖 AI Code Review");
+  lines.push(`> **Score:** ${report.score}/100 &nbsp;|&nbsp; **Model:** \`${model}\` &nbsp;|&nbsp; **Issues:** ${report.issues.length}`);
+  lines.push("");
+  lines.push(`**${report.summary}**`);
+  lines.push("");
+
+  if (report.issues.length === 0) {
+    lines.push("✅ No issues found. Looks good!");
+    return lines.join("\n");
+  }
+
+  // Group by file
+  const byFile = {};
+  for (const issue of report.issues) {
+    (byFile[issue.file] ??= []).push(issue);
+  }
+
+  for (const [file, issues] of Object.entries(byFile)) {
+    lines.push(`### 📄 \`${file}\``);
+    for (const issue of issues) {
+      lines.push(`**${emoji[issue.severity] ?? "⚪"} ${issue.severity.toUpperCase()} — Line ${issue.line} — ${issue.title}**`);
+      lines.push(`${issue.description}`);
+      if (issue.suggestion) lines.push(`> 💡 *${issue.suggestion}*`);
+      lines.push("");
+    }
+  }
+
+  lines.push("---");
+  lines.push("*Generated by AI Code Review using Ollama + llama3*");
+  return lines.join("\n");
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+async function main() {
+  const diff = await readStdin();
+
+  if (!diff.trim()) {
+    console.log("✅ No diff found — nothing to review.");
+    process.exit(0);
+  }
+
+  console.log(`🔍 Reviewing diff with ${MODEL} via ${AI_PROVIDER}...`);
+  console.log(`   Diff size: ${diff.split("\n").length} lines`);
+
+  let rawResponse;
+  if (AI_PROVIDER === "anthropic") {
+    // TODO: rawResponse = await callAnthropic(diff);
+    throw new Error("Anthropic provider not yet enabled. See TODO comments in scripts/review.mjs");
+  } else {
+    rawResponse = await callOllama(diff);
+  }
+
+  const report = parseResponse(rawResponse);
+
+  // Write JSON report (used by the PR comment step)
+  fs.writeFileSync("review.json", JSON.stringify(report, null, 2));
+  console.log("📄 Written: review.json");
+
+  // Write Markdown report (used for PR comment body)
+  const md = toMarkdown(report, MODEL);
+  fs.writeFileSync("review.md", md);
+  console.log("📄 Written: review.md");
+
+  // Print summary to console
+  console.log("\n" + "─".repeat(60));
+  console.log(`Score: ${report.score}/100`);
+  console.log(`Issues: ${report.issues.length}`);
+  if (report.issues.length > 0) {
+    for (const issue of report.issues) {
+      console.log(`  ${issue.severity.toUpperCase()} ${issue.file}:${issue.line} — ${issue.title}`);
+    }
+  }
+  console.log("─".repeat(60));
+
+  // Exit 1 to block PR merge if critical or high issues found
+  const blocking = report.issues.filter(
+    (i) => i.severity === "critical" || i.severity === "high"
+  ).length;
+
+  if (blocking > 0) {
+    console.error(`\n❌ ${blocking} blocking issue(s) found. Fix before merging.`);
+    process.exit(1);
+  }
+
+  console.log("\n✅ Review passed.");
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error("❌ Review failed:", err.message);
+  process.exit(1);
+});

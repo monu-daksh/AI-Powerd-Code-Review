@@ -1,0 +1,174 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Review with llama3
+    # ─────────────────────────────────────────────────────────────────────────
+    # OPTION A (Recommended — Free): Self-hosted runner on YOUR machine.
+    #   Your machine already has Ollama + llama3 installed.
+    #   Setup takes 5 minutes:
+    #   1. Go to: GitHub repo → Settings → Actions → Runners → New self-hosted runner
+    #   2. Follow the instructions to install the runner agent on your machine
+    #   3. Change the line below to: runs-on: self-hosted
+    #
+    # OPTION B: GitHub-hosted runner (installs Ollama each run, ~5 min).
+    #   Uncomment the "Install Ollama" step below.
+    #   Uses ubuntu-latest (free GitHub runner, no Ollama pre-installed).
+    # ─────────────────────────────────────────────────────────────────────────
+    runs-on: self-hosted   # ← Change to: ubuntu-latest  if using Option B
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── OPTION B only: Install Ollama on GitHub-hosted runner ────────────────
+      # Uncomment this block if runs-on: ubuntu-latest
+      #
+      # - name: Cache Ollama model
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.ollama/models
+      #     key: ollama-llama3-${{ runner.os }}
+      #
+      # - name: Install Ollama + pull llama3
+      #   run: |
+      #     curl -fsSL https://ollama.ai/install.sh | sh
+      #     ollama serve &
+      #     sleep 8
+      #     ollama pull llama3
+      # ────────────────────────────────────────────────────────────────────────
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Get PR diff
+        run: |
+          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+          echo "Lines in diff: $(wc -l < pr.diff)"
+          if [ ! -s pr.diff ]; then
+            echo "EMPTY_DIFF=true" >> $GITHUB_ENV
+          fi
+
+      - name: Run AI review
+        if: env.EMPTY_DIFF != 'true'
+        run: node scripts/review.mjs < pr.diff
+        env:
+          OLLAMA_BASE_URL: http://localhost:11434
+          OLLAMA_MODEL: llama3
+          # ── Future: Switch to Anthropic Claude ──────────────────────────
+          # 1. Add ANTHROPIC_API_KEY to repo secrets (Settings → Secrets → Actions)
+          # 2. Uncomment these 3 lines:
+          # AI_PROVIDER: anthropic
+          # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # ANTHROPIC_MODEL: claude-sonnet-4-6
+          # ────────────────────────────────────────────────────────────────
+        continue-on-error: true
+        id: ai_review
+
+      - name: Skip message (empty diff)
+        if: env.EMPTY_DIFF == 'true'
+        run: echo "No changes in diff — skipping review."
+
+      - name: Post review as PR comment
+        if: env.EMPTY_DIFF != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            let body;
+            try {
+              body = fs.readFileSync('review.md', 'utf8');
+            } catch {
+              body = '> ⚠️ AI Code Review script failed. Check the Actions log for details.';
+            }
+
+            // Update existing bot comment instead of creating a new one on each push
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c =>
+              c.user?.type === 'Bot' && c.body?.includes('🤖 AI Code Review')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Post inline comments for critical/high issues
+        if: env.EMPTY_DIFF != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let report;
+            try {
+              report = JSON.parse(fs.readFileSync('review.json', 'utf8'));
+            } catch {
+              return; // No JSON report, skip inline comments
+            }
+
+            const blocking = report.issues.filter(i =>
+              i.severity === 'critical' || i.severity === 'high'
+            );
+
+            if (blocking.length === 0) return;
+
+            const comments = blocking.map(issue => ({
+              path: issue.file,
+              line: issue.line,
+              side: 'RIGHT',
+              body: [
+                `**${issue.severity === 'critical' ? '🔴 Critical' : '🟠 High'}: ${issue.title}**`,
+                issue.description,
+                issue.suggestion ? `> 💡 ${issue.suggestion}` : '',
+              ].filter(Boolean).join('\n'),
+            }));
+
+            try {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                commit_id: context.payload.pull_request.head.sha,
+                event: 'COMMENT',
+                comments,
+              });
+            } catch (e) {
+              console.log('Inline comments failed (line may not be in diff):', e.message);
+            }
+
+      - name: Fail if blocking issues
+        if: steps.ai_review.outcome == 'failure' && env.EMPTY_DIFF != 'true'
+        run: |
+          echo "❌ Blocking issues (critical/high) found. Please fix before merging."
+          exit 1
