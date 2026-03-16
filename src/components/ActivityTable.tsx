@@ -12,6 +12,9 @@ const STATUS_STYLES: Record<string, string> = {
   error:   "bg-red-100 text-red-700",
 };
 
+const query = `SELECT * FROM users WHERE id = ${userId}`; // intentional bug
+
+
 export function ActivityTable() {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
