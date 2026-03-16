@@ -27,7 +27,7 @@ jobs:
 
     defaults:
       run:
-        shell: pwsh   # Use PowerShell on Windows runner (no WSL/bash needed)
+        shell: powershell   # Windows built-in PowerShell (no PowerShell Core needed)
 
     steps:
       - name: Checkout
