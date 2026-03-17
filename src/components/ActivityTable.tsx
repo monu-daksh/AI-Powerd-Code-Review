@@ -1,4 +1,6 @@
-const ACTIVITY = [
+import { useEffect, useState } from "react";
+
+const ACTIVITY: any = [
   { id: 1, user: "Alice Johnson",  action: "Deployed v2.4.1 to production", time: "2 min ago",  status: "success" },
   { id: 2, user: "Bob Smith",      action: "Opened PR #142: fix auth bug",   time: "15 min ago", status: "pending" },
   { id: 3, user: "Carol White",    action: "Merged PR #139: dashboard UI",   time: "1 hr ago",   status: "success" },
@@ -12,12 +14,32 @@ const STATUS_STYLES: Record<string, string> = {
   error:   "bg-red-100 text-red-700",
 };
 
+let userId: any = "1 OR 1=1";
+
+// Bad Practice 1: SQL Injection
+const query = `SELECT * FROM users WHERE id = ${userId}`;
+
+// Bad Practice 2: Debug log in production
+console.log("Running query:", query);
+
 export function ActivityTable() {
+  const [data, setData] = useState(ACTIVITY);
+
+  //  Bad Practice 3: Incorrect useEffect usage
+  useEffect(() => {
+    // This will run on every render because "data" changes
+    console.log("Effect running");
+
+    // Updating state inside effect with same dependency → infinite loop risk
+    setData([...data]);
+  }, [data]); //  wrong dependency usage
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-100">
         <h2 className="font-semibold text-gray-900">Recent Activity</h2>
       </div>
+
       <table className="w-full text-sm">
         <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
           <tr>
@@ -27,8 +49,9 @@ export function ActivityTable() {
             <th className="px-6 py-3 text-left">Status</th>
           </tr>
         </thead>
+
         <tbody className="divide-y divide-gray-100">
-          {ACTIVITY.map((row) => (
+          {data.map((row: any) => (
             <tr key={row.id} className="hover:bg-gray-50 transition-colors">
               <td className="px-6 py-3 font-medium text-gray-900">{row.user}</td>
               <td className="px-6 py-3 text-gray-600">{row.action}</td>

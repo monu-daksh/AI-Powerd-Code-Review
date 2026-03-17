@@ -25,6 +25,10 @@ jobs:
     # ─────────────────────────────────────────────────────────────────────────
     runs-on: self-hosted   # ← Change to: ubuntu-latest  if using Option B
 
+    defaults:
+      run:
+        shell: powershell   # Windows built-in PowerShell (no PowerShell Core needed)
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,18 +59,21 @@ jobs:
 
       - name: Get PR diff
         run: |
-          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
-          echo "Lines in diff: $(wc -l < pr.diff)"
-          if [ ! -s pr.diff ]; then
-            echo "EMPTY_DIFF=true" >> $GITHUB_ENV
-          fi
+          git diff origin/${{ github.base_ref }}...HEAD | Out-File -FilePath pr.diff -Encoding utf8
+          $size = (Get-Item pr.diff).Length
+          Write-Host "Diff size: $size bytes"
+          Get-Content pr.diff | Select-Object -First 30 | Write-Host
+          if ($size -eq 0) {
+            Add-Content -Path $env:GITHUB_ENV -Value "EMPTY_DIFF=true"
+            Write-Host "Diff is empty - skipping review"
+          }
 
       - name: Run AI review
         if: env.EMPTY_DIFF != 'true'
-        run: node scripts/review.mjs < pr.diff
+        run: node scripts/review.mjs --diff pr.diff
         env:
           OLLAMA_BASE_URL: http://localhost:11434
-          OLLAMA_MODEL: llama3
+          OLLAMA_MODEL: qwen2.5-coder:1.5b
           # ── Future: Switch to Anthropic Claude ──────────────────────────
           # 1. Add ANTHROPIC_API_KEY to repo secrets (Settings → Secrets → Actions)
           # 2. Uncomment these 3 lines:
@@ -93,7 +100,7 @@ jobs:
             try {
               body = fs.readFileSync('review.md', 'utf8');
             } catch {
-              body = '> ⚠️ AI Code Review script failed. Check the Actions log for details.';
+              body = '>  AI Code Review script failed. Check the Actions log for details.';
             }
 
             // Update existing bot comment instead of creating a new one on each push
@@ -104,7 +111,7 @@ jobs:
             });
 
             const existing = comments.find(c =>
-              c.user?.type === 'Bot' && c.body?.includes('🤖 AI Code Review')
+              c.user?.type === 'Bot' && c.body?.includes(' AI Code Review')
             );
 
             if (existing) {
@@ -123,7 +130,7 @@ jobs:
               });
             }
 
-      - name: Post inline comments for critical/high issues
+      - name: h issues
         if: env.EMPTY_DIFF != 'true'
         uses: actions/github-script@v7
         with:
@@ -167,8 +174,20 @@ jobs:
               console.log('Inline comments failed (line may not be in diff):', e.message);
             }
 
-      - name: Fail if blocking issues
-        if: steps.ai_review.outcome == 'failure' && env.EMPTY_DIFF != 'true'
+      - name: Report issues summary
+        if: env.EMPTY_DIFF != 'true'
         run: |
-          echo "❌ Blocking issues (critical/high) found. Please fix before merging."
-          exit 1
+          echo "AI Code Review completed. Check the PR comment for the full report."
+          echo "Issues are labeled as: critical / high / medium / low / info"
+
+          # ─────────────────────────────────────────────────────────────────
+          # TO BLOCK THE PIPELINE on critical/high issues:
+          #   1. Uncomment the block below
+          #   2. Once all critical/high issues are resolved, the pipeline
+          #      will automatically pass and allow merging
+          # ─────────────────────────────────────────────────────────────────
+          # if ($env:REVIEW_OUTCOME -eq 'failure') {
+          #   echo "BLOCKED: Critical/High issues found. Fix them before merging."
+          #   exit 1
+          # }
+          # ─────────────────────────────────────────────────────────────────

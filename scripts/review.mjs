@@ -24,7 +24,16 @@ const MODEL = process.env.OLLAMA_MODEL ?? "llama3";
 const AI_PROVIDER = process.env.AI_PROVIDER ?? "ollama"; // "ollama" | "anthropic"
 
 // ── Read diff from stdin ──────────────────────────────────────────────────────
-async function readStdin() {
+async function readInput() {
+  const args = process.argv.slice(2);
+  const diffFlagIdx = args.indexOf("--diff");
+
+  // --diff <file> flag (used by GitHub Actions on Windows)
+  if (diffFlagIdx !== -1 && args[diffFlagIdx + 1]) {
+    return fs.readFileSync(args[diffFlagIdx + 1], "utf-8");
+  }
+
+  // fallback: read from stdin
   const rl = readline.createInterface({ input: process.stdin });
   const lines = [];
   for await (const line of rl) lines.push(line);
@@ -45,7 +54,7 @@ JSON schema:
       "file": "exact filename",
       "line": <line number in new file>,
       "severity": "critical" | "high" | "medium" | "low",
-      "category": "security" | "bug" | "performance" | "style",
+      "category": "security" | "bug" | "performance" | "style" | "eslint" | "typescript",
       "title": "short title",
       "description": "what is wrong",
       "suggestion": "how to fix it"
@@ -56,7 +65,9 @@ JSON schema:
 Rules:
 - Only report real issues in the CHANGED lines
 - Never hallucinate issues not present in the diff
-- If code is fine, return empty issues array and score >= 85`;
+- If code is fine, return empty issues array and score >= 85
+- Report ESLint violations (any, no-explicit-any, prefer-const, unused vars etc) as category "eslint"
+- Report TypeScript type errors or missing types as category "typescript"`;
 
   const userPrompt = `Review this git diff:\n\n${diff}`;
 
@@ -114,14 +125,14 @@ function toMarkdown(report, model) {
   const emoji = { critical: "🔴", high: "🟠", medium: "🟡", low: "🔵" };
   const lines = [];
 
-  lines.push("## 🤖 AI Code Review");
+  lines.push("## AI Code Review");
   lines.push(`> **Score:** ${report.score}/100 &nbsp;|&nbsp; **Model:** \`${model}\` &nbsp;|&nbsp; **Issues:** ${report.issues.length}`);
   lines.push("");
   lines.push(`**${report.summary}**`);
   lines.push("");
 
   if (report.issues.length === 0) {
-    lines.push("✅ No issues found. Looks good!");
+    lines.push("No issues found. Looks good!");
     return lines.join("\n");
   }
 
@@ -148,14 +159,14 @@ function toMarkdown(report, model) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  const diff = await readStdin();
+  const diff = await readInput();
 
   if (!diff.trim()) {
-    console.log("✅ No diff found — nothing to review.");
+    console.log("No diff found — nothing to review.");
     process.exit(0);
   }
 
-  console.log(`🔍 Reviewing diff with ${MODEL} via ${AI_PROVIDER}...`);
+  console.log(` Reviewing diff with ${MODEL} via ${AI_PROVIDER}...`);
   console.log(`   Diff size: ${diff.split("\n").length} lines`);
 
   let rawResponse;
@@ -170,12 +181,12 @@ async function main() {
 
   // Write JSON report (used by the PR comment step)
   fs.writeFileSync("review.json", JSON.stringify(report, null, 2));
-  console.log("📄 Written: review.json");
+  console.log(" Written: review.json");
 
   // Write Markdown report (used for PR comment body)
   const md = toMarkdown(report, MODEL);
   fs.writeFileSync("review.md", md);
-  console.log("📄 Written: review.md");
+  console.log(" Written: review.md");
 
   // Print summary to console
   console.log("\n" + "─".repeat(60));
@@ -194,15 +205,15 @@ async function main() {
   ).length;
 
   if (blocking > 0) {
-    console.error(`\n❌ ${blocking} blocking issue(s) found. Fix before merging.`);
+    console.error(`\n ${blocking} blocking issue(s) found. Fix before merging.`);
     process.exit(1);
   }
 
-  console.log("\n✅ Review passed.");
+  console.log("\n Review passed.");
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error("❌ Review failed:", err.message);
+  console.error(" Review failed:", err.message);
   process.exit(1);
 });
