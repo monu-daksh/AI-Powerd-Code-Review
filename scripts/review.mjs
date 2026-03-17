@@ -15,7 +15,7 @@ import readline from "readline";
 // ── Config ─────────────────────────────────────────────────────────────────
 // Hardcoded model — change here to switch models globally
 const OLLAMA_URL = "http://localhost:11434";
-const MODEL      = "qwen2.5-coder:1.5b";   // ← single source of truth
+const MODEL      = "phi3:mini";   // ← single source of truth
 
 // ── Read diff ───────────────────────────────────────────────────────────────
 async function readInput() {
