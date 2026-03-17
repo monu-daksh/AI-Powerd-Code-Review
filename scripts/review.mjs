@@ -252,6 +252,15 @@ async function main() {
   console.log(`   Files: ${changedFiles.join(", ")}`);
   console.log(`   Diff : ${diff.split("\n").length} lines`);
 
+  // Verify Ollama is reachable before sending the full diff
+  try {
+    await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
+  } catch {
+    console.error(`\n Ollama is not reachable at ${OLLAMA_URL}`);
+    console.error("  Make sure Ollama is running: ollama serve");
+    process.exit(1);
+  }
+
   // TODO (Anthropic): swap callOllama → callAnthropic here
   const raw = await callOllama(diff, changedFiles);
 
