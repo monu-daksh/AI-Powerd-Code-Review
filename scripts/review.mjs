@@ -23,7 +23,8 @@ async function readInput() {
   const idx  = args.indexOf("--diff");
 
   if (idx !== -1 && args[idx + 1]) {
-    return fs.readFileSync(args[idx + 1], "utf-8");
+    // Strip UTF-8 BOM if present (PowerShell Out-File adds BOM by default)
+    return fs.readFileSync(args[idx + 1], "utf-8").replace(/^\uFEFF/, "");
   }
 
   const rl    = readline.createInterface({ input: process.stdin });
@@ -225,6 +226,12 @@ async function main() {
     console.log("No diff — nothing to review.");
     process.exit(0);
   }
+
+  // Debug: show first 3 lines to confirm diff format is correct
+  const firstLines = diff.split("\n").slice(0, 3);
+  console.log("\n── First 3 lines of diff ────────────────────────────");
+  firstLines.forEach((l, i) => console.log(`  ${i}: ${JSON.stringify(l)}`));
+  console.log("─────────────────────────────────────────────────────\n");
 
   const changedFiles = parseDiffMeta(diff);
   console.log(`\n Reviewing ${changedFiles.length} file(s) with ${MODEL}...`);
