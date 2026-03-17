@@ -109,7 +109,7 @@ Rules:
       system : systemPrompt,
       stream : false,
       format : "json",
-      options: { temperature: 0.1, num_predict: 4000 },
+      options: { temperature: 0.1, num_predict: 8000 },
     }),
     signal: AbortSignal.timeout(600_000),
   });
@@ -149,19 +149,39 @@ function parseResponse(raw) {
     .trim();
 
   let parsed;
+
+  // 1. Try full parse
   try {
     parsed = JSON.parse(cleaned);
   } catch {
+    // 2. Try extracting a complete JSON object
     const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) parsed = JSON.parse(match[0]);
-    else throw new Error("AI returned non-JSON. Try running again or switch to a larger model.");
+    if (match) {
+      try { parsed = JSON.parse(match[0]); } catch {}
+    }
+  }
+
+  // 3. If still broken (truncated), salvage complete issue objects already parsed
+  if (!parsed) {
+    const issues = [];
+    const issueRx = /\{[^{}]*"severity"\s*:\s*"[^"]*"[^{}]*"file"\s*:\s*"[^"]*"[^{}]*\}/g;
+    let m;
+    while ((m = issueRx.exec(cleaned)) !== null) {
+      try { issues.push(JSON.parse(m[0])); } catch {}
+    }
+    if (issues.length > 0) {
+      console.warn("  JSON was truncated — salvaged", issues.length, "issue(s) from partial response");
+      parsed = { summary: "Review completed (partial response).", score: 70, issues };
+    } else {
+      throw new Error("AI returned non-JSON. Try running again or switch to a larger model.");
+    }
   }
 
   // Normalize field names — small models use different keys
   return {
-    summary: parsed.summary ?? parsed.overview ?? parsed.assessment ?? parsed.description ?? "No summary provided.",
-    score  : parsed.score   ?? parsed.overall_score ?? parsed.rating ?? parsed.quality_score ?? 70,
-    issues : parsed.issues  ?? parsed.problems      ?? parsed.findings ?? parsed.errors ?? [],
+    summary: parsed.summary ?? parsed.overview ?? parsed.assessment ?? "No summary provided.",
+    score  : parsed.score   ?? parsed.overall_score ?? parsed.rating ?? 70,
+    issues : parsed.issues  ?? parsed.problems ?? parsed.findings ?? [],
   };
 }
 
