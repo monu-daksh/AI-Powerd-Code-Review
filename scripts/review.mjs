@@ -100,19 +100,29 @@ Rules:
 
   const userPrompt = `Review this git diff:\n\n${diff}`;
 
-  const res = await fetch(`${OLLAMA_URL}/api/generate`, {
-    method : "POST",
-    headers: { "Content-Type": "application/json" },
-    body   : JSON.stringify({
-      model  : MODEL,
-      prompt : userPrompt,
-      system : systemPrompt,
-      stream : false,
-      format : "json",
-      options: { temperature: 0.1, num_predict: 8000 },
-    }),
-    signal: AbortSignal.timeout(600_000),
-  });
+  let res;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      res = await fetch(`${OLLAMA_URL}/api/generate`, {
+        method : "POST",
+        headers: { "Content-Type": "application/json" },
+        body   : JSON.stringify({
+          model  : MODEL,
+          prompt : userPrompt,
+          system : systemPrompt,
+          stream : false,
+          format : "json",
+          options: { temperature: 0.1, num_predict: 8000 },
+        }),
+        signal: AbortSignal.timeout(600_000),
+      });
+      break; // success — exit retry loop
+    } catch (err) {
+      console.warn(`  Ollama attempt ${attempt}/3 failed: ${err.message}`);
+      if (attempt === 3) throw err;
+      await new Promise(r => setTimeout(r, 5000 * attempt));
+    }
+  }
 
   if (!res.ok) {
     const text = await res.text();
