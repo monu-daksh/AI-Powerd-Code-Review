@@ -48,8 +48,22 @@ function parseDiffMeta(diff) {
   return files;
 }
 
+// ── Trim diff to only added lines + file/hunk headers (reduces tokens ~60%) ──
+function trimDiff(diff) {
+  return diff
+    .split("\n")
+    .filter((line) =>
+      line.startsWith("diff --git") ||
+      line.startsWith("+++") ||
+      line.startsWith("@@") ||
+      line.startsWith("+")
+    )
+    .join("\n");
+}
+
 // ── Call Ollama ─────────────────────────────────────────────────────────────
 async function callOllama(diff, changedFiles) {
+  diff = trimDiff(diff);
   const fileList = changedFiles.map((f) => `  - ${f}`).join("\n");
 
   const systemPrompt = `You are a senior software engineer doing a strict code review.
@@ -97,7 +111,7 @@ Rules:
       format : "json",
       options: { temperature: 0.1, num_predict: 4000 },
     }),
-    signal: AbortSignal.timeout(300_000),
+    signal: AbortSignal.timeout(600_000),
   });
 
   if (!res.ok) {
