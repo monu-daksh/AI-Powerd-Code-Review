@@ -74,15 +74,13 @@ jobs:
       - name: Ensure Ollama is running
         if: env.EMPTY_DIFF != 'true'
         run: |
-          $response = try { Invoke-WebRequest -Uri "http://localhost:11434" -TimeoutSec 3 -ErrorAction Stop } catch { $null }
-          if (-not $response) {
-            Write-Host "Ollama not running — starting it..."
-            Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
+          $ok = $false
+          try { $ok = (Invoke-WebRequest -Uri http://localhost:11434 -TimeoutSec 3).StatusCode -eq 200 } catch {}
+          if (-not $ok) {
+            Start-Process ollama -ArgumentList serve -WindowStyle Hidden
             Start-Sleep -Seconds 6
-            Write-Host "Ollama started"
-          } else {
-            Write-Host "Ollama already running"
           }
+          Write-Host "Ollama ready"
 
       - name: Run AI review
         if: env.EMPTY_DIFF != 'true'
