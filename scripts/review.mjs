@@ -253,6 +253,8 @@ function toMarkdown(report) {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 async function main() {
+  console.log("DEBUG: script started, Node version:", process.version);
+  console.log("DEBUG: args:", process.argv.slice(2).join(" "));
   const raw_diff = await readInput();
   const diff     = raw_diff.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -313,5 +315,6 @@ async function main() {
 
 main().catch((err) => {
   console.error(" Review failed:", err.message);
+  console.error(err.stack);
   process.exit(1);
 });
