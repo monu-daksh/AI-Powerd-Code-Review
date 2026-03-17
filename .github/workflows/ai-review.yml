@@ -100,7 +100,7 @@ jobs:
             try {
               body = fs.readFileSync('review.md', 'utf8');
             } catch {
-              body = '> ⚠️ AI Code Review script failed. Check the Actions log for details.';
+              body = '>  AI Code Review script failed. Check the Actions log for details.';
             }
 
             // Update existing bot comment instead of creating a new one on each push
@@ -111,7 +111,7 @@ jobs:
             });
 
             const existing = comments.find(c =>
-              c.user?.type === 'Bot' && c.body?.includes('🤖 AI Code Review')
+              c.user?.type === 'Bot' && c.body?.includes(' AI Code Review')
             );
 
             if (existing) {
