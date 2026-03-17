@@ -34,12 +34,15 @@ async function readInput() {
 
 // ── Parse diff → extract real file names and line numbers ──────────────────
 // This prevents the AI from hallucinating file names
+// NOTE: normalize \r\n → \n first (Windows PowerShell writes CRLF line endings)
 function parseDiffMeta(diff) {
-  const files   = [];
-  const fileRx  = /^diff --git a\/.+ b\/(.+)$/gm;
+  const normalized = diff.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const files      = [];
+  const fileRx     = /^diff --git a\/.+ b\/(.+)$/gm;
   let m;
-  while ((m = fileRx.exec(diff)) !== null) {
-    if (!files.includes(m[1])) files.push(m[1]);
+  while ((m = fileRx.exec(normalized)) !== null) {
+    const file = m[1].trim(); // trim trailing \r just in case
+    if (!files.includes(file)) files.push(file);
   }
   return files;
 }
@@ -215,7 +218,8 @@ function toMarkdown(report) {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 async function main() {
-  const diff = await readInput();
+  const raw_diff = await readInput();
+  const diff     = raw_diff.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
   if (!diff.trim()) {
     console.log("No diff — nothing to review.");
