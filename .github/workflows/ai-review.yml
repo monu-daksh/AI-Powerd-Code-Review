@@ -71,19 +71,28 @@ jobs:
             Add-Content -Path $env:GITHUB_ENV -Value "EMPTY_DIFF=true"
           }
 
+      - name: Ensure Ollama is running
+        if: env.EMPTY_DIFF != 'true'
+        run: |
+          $response = try { Invoke-WebRequest -Uri "http://localhost:11434" -TimeoutSec 3 -ErrorAction Stop } catch { $null }
+          if (-not $response) {
+            Write-Host "Ollama not running — starting it..."
+            Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
+            Start-Sleep -Seconds 6
+            Write-Host "Ollama started"
+          } else {
+            Write-Host "Ollama already running"
+          }
+
       - name: Run AI review
         if: env.EMPTY_DIFF != 'true'
         run: node scripts/review.mjs --diff pr.diff
-        env:
-          OLLAMA_BASE_URL: http://localhost:11434
-          OLLAMA_MODEL: qwen2.5-coder:1.5b
-          # ── Future: Switch to Anthropic Claude ──────────────────────────
-          # 1. Add ANTHROPIC_API_KEY to repo secrets (Settings → Secrets → Actions)
-          # 2. Uncomment these 3 lines:
-          # AI_PROVIDER: anthropic
-          # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # ANTHROPIC_MODEL: claude-sonnet-4-6
-          # ────────────────────────────────────────────────────────────────
+        # ── Future: Switch to Anthropic Claude ──────────────────────────────
+        # 1. Add ANTHROPIC_API_KEY to repo Secrets (Settings → Secrets → Actions)
+        # 2. Uncomment these 2 lines and update review.mjs to call callAnthropic()
+        # env:
+        #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        # ────────────────────────────────────────────────────────────────────
         continue-on-error: true
         id: ai_review
 
