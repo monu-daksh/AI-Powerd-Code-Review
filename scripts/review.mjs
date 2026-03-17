@@ -129,25 +129,44 @@ function parseResponse(raw) {
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/```\s*$/, "")
     .trim();
+
+  let parsed;
   try {
-    return JSON.parse(cleaned);
+    parsed = JSON.parse(cleaned);
   } catch {
     const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
-    throw new Error(
-      "AI returned non-JSON. Try running again or switch to a larger model."
-    );
+    if (match) parsed = JSON.parse(match[0]);
+    else throw new Error("AI returned non-JSON. Try running again or switch to a larger model.");
   }
+
+  // Normalize field names — small models use different keys
+  return {
+    summary: parsed.summary ?? parsed.overview ?? parsed.assessment ?? parsed.description ?? "No summary provided.",
+    score  : parsed.score   ?? parsed.overall_score ?? parsed.rating ?? parsed.quality_score ?? 70,
+    issues : parsed.issues  ?? parsed.problems      ?? parsed.findings ?? parsed.errors ?? [],
+  };
 }
 
-// ── Validate issues — remove hallucinated file names ────────────────────────
+// ── Validate issues — fuzzy match file names to prevent hallucination ────────
 function validateReport(report, changedFiles) {
   report.issues = (report.issues ?? []).filter((issue) => {
-    const valid = changedFiles.includes(issue.file);
-    if (!valid) {
-      console.warn(`  Skipping hallucinated file: "${issue.file}"`);
+    if (!issue.file) return false;
+
+    // exact match first
+    if (changedFiles.includes(issue.file)) return true;
+
+    // fuzzy: check if any changed file ends with the reported file (or vice versa)
+    const fuzzy = changedFiles.find(
+      (f) => f.endsWith(issue.file) || issue.file.endsWith(f) || f.includes(issue.file)
+    );
+
+    if (fuzzy) {
+      issue.file = fuzzy; // correct the file name to the full path
+      return true;
     }
-    return valid;
+
+    console.warn(`  Skipping hallucinated file: "${issue.file}"`);
+    return false;
   });
   return report;
 }
@@ -209,9 +228,15 @@ async function main() {
   console.log(`   Diff : ${diff.split("\n").length} lines`);
 
   // TODO (Anthropic): swap callOllama → callAnthropic here
-  const raw    = await callOllama(diff, changedFiles);
-  let   report = parseResponse(raw);
-  report       = validateReport(report, changedFiles);
+  const raw = await callOllama(diff, changedFiles);
+
+  // Debug: show raw AI response so we can verify the JSON shape
+  console.log("\n── Raw AI response ──────────────────────────────────");
+  console.log(raw.slice(0, 800));
+  console.log("─────────────────────────────────────────────────────\n");
+
+  let report = parseResponse(raw);
+  report     = validateReport(report, changedFiles);
 
   fs.writeFileSync("review.json", JSON.stringify(report, null, 2));
   console.log(" Written: review.json");
