@@ -8,7 +8,7 @@ interface StatsCardProps {
 export function StatsCard(props: StatsCardProps) {
   const { label, value, change, positive } = props;
 
-  //  unnecessary re-computation on every render
+ 
   const formattedValue = value + " USD";
 
   //  bad logic: treats undefined as false silently
