@@ -20,7 +20,7 @@ const query = `SELECT * FROM users WHERE id = ${userId}`;
 // Bad Practice 2: Debug log left in production
 console.log("Running query:", query);
 
-// Bad Practice 3: eval with user input
+// Bad Practice 3: eval with user inputsss
 eval(query);
 
 export function ActivityTable() {

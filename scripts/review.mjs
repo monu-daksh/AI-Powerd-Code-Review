@@ -48,6 +48,20 @@ function parseDiffMeta(diff) {
   return files;
 }
 
+// ── Filter diff to only src/ files (skip CI/tooling changes) ────────────────
+// This prevents the AI from reviewing .github/ or scripts/ and producing false positives
+function filterDiffToSrc(diff) {
+  const normalized = diff.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const sections = normalized.split(/(?=^diff --git )/m);
+  const srcSections = sections.filter((s) => {
+    const m = s.match(/^diff --git a\/.+ b\/(.+)$/m);
+    if (!m) return false;
+    const file = m[1].trim();
+    return file.startsWith("src/");
+  });
+  return srcSections.join("\n");
+}
+
 // ── Trim diff to only added lines + file/hunk headers (reduces tokens ~60%) ──
 function trimDiff(diff) {
   return diff
@@ -298,10 +312,14 @@ async function main() {
   firstLines.forEach((l, i) => console.log(`  ${i}: ${JSON.stringify(l)}`));
   console.log("─────────────────────────────────────────────────────\n");
 
-  const changedFiles = parseDiffMeta(diff);
+  // Filter to src/ only — skip CI config and tooling changes to avoid false positives
+  const srcDiff = filterDiffToSrc(diff);
+  const reviewDiff = srcDiff.trim() ? srcDiff : diff; // fallback to full diff if no src/ files
+
+  const changedFiles = parseDiffMeta(reviewDiff);
   console.log(`\n Reviewing ${changedFiles.length} file(s) with ${MODEL}...`);
   console.log(`   Files: ${changedFiles.join(", ")}`);
-  console.log(`   Diff : ${diff.split("\n").length} lines`);
+  console.log(`   Diff : ${reviewDiff.split("\n").length} lines`);
 
   // Verify Ollama is reachable before sending the full diff
   try {
@@ -313,7 +331,7 @@ async function main() {
   }
 
   // TODO (Anthropic): swap callOllama → callAnthropic here
-  const raw = await callOllama(diff, changedFiles);
+  const raw = await callOllama(reviewDiff, changedFiles);
 
   // Debug: show raw AI response so we can verify the JSON shape
   console.log("\n── Raw AI response ──────────────────────────────────");

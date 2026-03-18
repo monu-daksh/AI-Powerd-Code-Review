@@ -11,7 +11,7 @@ export function StatsCard(props: StatsCardProps) {
  
   const formattedValue = value + " USD";
 
-  //  bad logic: treats undefined as false silently
+  //  bad logic: treats undefined as false silentlyss
   const colorClass = positive ? "text-green-600" : "text-red-500";
 
   //  debug log left in production
