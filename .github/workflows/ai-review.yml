@@ -59,28 +59,45 @@ jobs:
 
       - name: Get PR diff
         run: |
-          git diff origin/${{ github.base_ref }}...HEAD | Out-File -FilePath pr.diff -Encoding utf8
-          $size = (Get-Item pr.diff).Length
-          Write-Host "Diff size: $size bytes"
-          Get-Content pr.diff | Select-Object -First 30 | Write-Host
-          if ($size -eq 0) {
-            Add-Content -Path $env:GITHUB_ENV -Value "EMPTY_DIFF=true"
+          $diffContent = git diff origin/${{ github.base_ref }}...HEAD
+          if ($diffContent) {
+            # Write UTF-8 WITHOUT BOM — PowerShell Out-File adds BOM which breaks Node.js regex
+            [System.IO.File]::WriteAllText("pr.diff", ($diffContent -join "`n"), [System.Text.UTF8Encoding]::new($false))
+            $size = (Get-Item pr.diff).Length
+            Write-Host "Diff size: $size bytes"
+            Write-Host "First line: $(($diffContent | Select-Object -First 1))"
+          } else {
             Write-Host "Diff is empty - skipping review"
+            Add-Content -Path $env:GITHUB_ENV -Value "EMPTY_DIFF=true"
           }
+
+      - name: Ensure Ollama is running
+        if: env.EMPTY_DIFF != 'true'
+        run: |
+          $ok = $false
+          try { $ok = (Invoke-WebRequest -Uri http://localhost:11434 -TimeoutSec 3).StatusCode -eq 200 } catch {}
+          if (-not $ok) {
+            Start-Process ollama -ArgumentList serve -WindowStyle Hidden
+            Start-Sleep -Seconds 8
+          }
+          Write-Host "Ollama ready"
+
+      - name: Ensure model is pulled
+        if: env.EMPTY_DIFF != 'true'
+        run: |
+          Write-Host "Pulling phi3:mini (no-op if already cached)..."
+          ollama pull phi3:mini
+          Write-Host "Model ready"
 
       - name: Run AI review
         if: env.EMPTY_DIFF != 'true'
         run: node scripts/review.mjs --diff pr.diff
-        env:
-          OLLAMA_BASE_URL: http://localhost:11434
-          OLLAMA_MODEL: qwen2.5-coder:1.5b
-          # ── Future: Switch to Anthropic Claude ──────────────────────────
-          # 1. Add ANTHROPIC_API_KEY to repo secrets (Settings → Secrets → Actions)
-          # 2. Uncomment these 3 lines:
-          # AI_PROVIDER: anthropic
-          # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # ANTHROPIC_MODEL: claude-sonnet-4-6
-          # ────────────────────────────────────────────────────────────────
+        # ── Future: Switch to Anthropic Claude ──────────────────────────────
+        # 1. Add ANTHROPIC_API_KEY to repo Secrets (Settings → Secrets → Actions)
+        # 2. Uncomment these 2 lines and update review.mjs to call callAnthropic()
+        # env:
+        #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        # ────────────────────────────────────────────────────────────────────
         continue-on-error: true
         id: ai_review
 
