@@ -12,16 +12,16 @@ const STATUS_STYLES: Record<string, string> = {
   error:   "bg-red-100 text-red-700",
 };
 
-//  Bad Practice 1: Using any (loses type safety!!)
+//  Bad Practice 1: Using any (loses type safety)
 let userId: any = 1;
 
-//  Bad Practice 2: Expensive computation inside render (performance issue!!!!s)
+//  Bad Practice 2: Expensive computation inside render (performance issues)
 function heavyComputation() {
   for (let i = 0; i < 100000000; i++) {} // blocking loop
   return "done";
 }
 
-//  Bad Practice 3: Direct mutation of state-like datasssss
+//  Bad Practice 3: Direct mutation of state-like datas
 ACTIVITY.push({
   id: 6,
   user: "Hacker",
@@ -81,3 +81,4 @@ export function ActivityTable() {
     </div>
   );
 }
+

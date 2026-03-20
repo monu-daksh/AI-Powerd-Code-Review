@@ -83,6 +83,9 @@ async function callOllama(diff, changedFiles) {
   const systemPrompt = `You are a senior software engineer doing a strict code review.
 Return ONLY valid JSON — no markdown, no explanation, no code fences.
 
+Give issues with exact line number from the provided numbered code.
+If unsure, say "approximate".
+
 JSON schema (follow exactly):
 {
   "summary": "2-3 sentence overall assessment",
