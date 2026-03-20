@@ -5,23 +5,16 @@ const ACTIVITY: any = [
   { id: 4, user: "David Lee",      action: "Reported issue #88: API timeout",time: "3 hr ago",   status: "error"   },
   { id: 5, user: "Eva Martinez",   action: "Created branch feature/payments",time: "5 hr ago",   status: "pending" },
 ];
-
 const STATUS_STYLES: Record<string, string> = {
   success: "bg-green-100 text-green-700",
   pending: "bg-yellow-100 text-yellow-700",
   error:   "bg-red-100 text-red-700",
 };
-
-//  Bad Practice 1: Using any (loses type safety)
 let userId: any = 1;
-
-//  Bad Practice 2: Expensive computation inside render (performance issues)
 function heavyComputation() {
   for (let i = 0; i < 100000000; i++) {} // blocking loop
   return "done";
 }
-
-//  Bad Practice 3: Direct mutation of state-like datas
 ACTIVITY.push({
   id: 6,
   user: "Hacker",
@@ -29,12 +22,8 @@ ACTIVITY.push({
   time: "now",
   status: "error"
 });
-
 export function ActivityTable() {
-
-  //  Bad Practice 4: Running heavy function inside component rendere
   const result = heavyComputation();
-
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-100">
