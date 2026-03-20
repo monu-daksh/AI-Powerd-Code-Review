@@ -48,6 +48,20 @@ function parseDiffMeta(diff) {
   return files;
 }
 
+// ── Filter diff to only src/ files (skip CI/tooling changes) ────────────────
+// This prevents the AI from reviewing .github/ or scripts/ and producing false positives
+function filterDiffToSrc(diff) {
+  const normalized = diff.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const sections = normalized.split(/(?=^diff --git )/m);
+  const srcSections = sections.filter((s) => {
+    const m = s.match(/^diff --git a\/.+ b\/(.+)$/m);
+    if (!m) return false;
+    const file = m[1].trim();
+    return file.startsWith("src/");
+  });
+  return srcSections.join("\n");
+}
+
 // ── Trim diff to only added lines + file/hunk headers (reduces tokens ~60%) ──
 function trimDiff(diff) {
   return diff
@@ -164,20 +178,39 @@ function parseResponse(raw) {
   try {
     parsed = JSON.parse(cleaned);
   } catch {
-    // 2. Try extracting a complete JSON object
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { parsed = JSON.parse(match[0]); } catch {}
+    // 2. Extract FIRST complete JSON object using brace counting (handles double-output from phi3)
+    const start = cleaned.indexOf("{");
+    if (start !== -1) {
+      let depth = 0, end = -1;
+      for (let i = start; i < cleaned.length; i++) {
+        if (cleaned[i] === "{") depth++;
+        else if (cleaned[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end !== -1) {
+        try { parsed = JSON.parse(cleaned.slice(start, end + 1)); } catch {}
+      }
     }
   }
 
-  // 3. If still broken (truncated), salvage complete issue objects already parsed
+  // 3. Salvage: extract all complete {...} objects that look like issues
   if (!parsed) {
     const issues = [];
-    const issueRx = /\{[^{}]*"severity"\s*:\s*"[^"]*"[^{}]*"file"\s*:\s*"[^"]*"[^{}]*\}/g;
-    let m;
-    while ((m = issueRx.exec(cleaned)) !== null) {
-      try { issues.push(JSON.parse(m[0])); } catch {}
+    let i = 0;
+    while (i < cleaned.length) {
+      const s = cleaned.indexOf("{", i);
+      if (s === -1) break;
+      let depth = 0, e = -1;
+      for (let j = s; j < cleaned.length; j++) {
+        if (cleaned[j] === "{") depth++;
+        else if (cleaned[j] === "}") { depth--; if (depth === 0) { e = j; break; } }
+      }
+      if (e === -1) break;
+      const candidate = cleaned.slice(s, e + 1);
+      try {
+        const obj = JSON.parse(candidate);
+        if (obj.file && obj.severity) issues.push(obj);
+      } catch {}
+      i = e + 1;
     }
     if (issues.length > 0) {
       console.warn("  JSON was truncated — salvaged", issues.length, "issue(s) from partial response");
@@ -279,10 +312,14 @@ async function main() {
   firstLines.forEach((l, i) => console.log(`  ${i}: ${JSON.stringify(l)}`));
   console.log("─────────────────────────────────────────────────────\n");
 
-  const changedFiles = parseDiffMeta(diff);
+  // Filter to src/ only — skip CI config and tooling changes to avoid false positives
+  const srcDiff = filterDiffToSrc(diff);
+  const reviewDiff = srcDiff.trim() ? srcDiff : diff; // fallback to full diff if no src/ files
+
+  const changedFiles = parseDiffMeta(reviewDiff);
   console.log(`\n Reviewing ${changedFiles.length} file(s) with ${MODEL}...`);
   console.log(`   Files: ${changedFiles.join(", ")}`);
-  console.log(`   Diff : ${diff.split("\n").length} lines`);
+  console.log(`   Diff : ${reviewDiff.split("\n").length} lines`);
 
   // Verify Ollama is reachable before sending the full diff
   try {
@@ -294,7 +331,7 @@ async function main() {
   }
 
   // TODO (Anthropic): swap callOllama → callAnthropic here
-  const raw = await callOllama(diff, changedFiles);
+  const raw = await callOllama(reviewDiff, changedFiles);
 
   // Debug: show raw AI response so we can verify the JSON shape
   console.log("\n── Raw AI response ──────────────────────────────────");
