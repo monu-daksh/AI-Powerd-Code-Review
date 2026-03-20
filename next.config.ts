@@ -3,6 +3,12 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Disable ESLint and TypeScript errors from blocking the build
   // The AI reviewer will catch and report these issues instead
+  webpack: (config, { isServer, dev }) => {
+    if (isServer && dev) {
+      config.devtool = 'source-map';
+    }
+    return config;
+  },
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   async headers() {

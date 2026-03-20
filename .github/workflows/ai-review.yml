@@ -10,47 +10,45 @@ permissions:
 
 jobs:
   review:
-    name: Review with llama3
-    # ─────────────────────────────────────────────────────────────────────────
-    # OPTION A (Recommended — Free): Self-hosted runner on YOUR machine.
-    #   Your machine already has Ollama + llama3 installed.
-    #   Setup takes 5 minutes:
-    #   1. Go to: GitHub repo → Settings → Actions → Runners → New self-hosted runner
-    #   2. Follow the instructions to install the runner agent on your machine
-    #   3. Change the line below to: runs-on: self-hosted
-    #
-    # OPTION B: GitHub-hosted runner (installs Ollama each run, ~5 min).
-    #   Uncomment the "Install Ollama" step below.
-    #   Uses ubuntu-latest (free GitHub runner, no Ollama pre-installed).
-    # ─────────────────────────────────────────────────────────────────────────
-    runs-on: self-hosted   # ← Change to: ubuntu-latest  if using Option B
+    name: Review with deepseek-coder-v2
+    runs-on: self-hosted
 
     defaults:
       run:
-        shell: powershell   # Windows built-in PowerShell (no PowerShell Core needed)
+        shell: powershell
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          clean: false   # keep node_modules on disk between runs (self-hosted runner)
 
-      # ── OPTION B only: Install Ollama on GitHub-hosted runner ────────────────
-      # Uncomment this block if runs-on: ubuntu-latest
-      #
-      # - name: Cache Ollama model
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: ~/.ollama/models
-      #     key: ollama-llama3-${{ runner.os }}
-      #
-      # - name: Install Ollama + pull llama3
-      #   run: |
-      #     curl -fsSL https://ollama.ai/install.sh | sh
-      #     ollama serve &
-      #     sleep 8
-      #     ollama pull llama3
-      # ────────────────────────────────────────────────────────────────────────
+      # Smart dependency install: no tar/upload overhead.
+      # Workspace persists on self-hosted runners, so we store a SHA-256 hash
+      # of package-lock.json and only run npm ci when it actually changes.
+      - name: Install dependencies (smart cache)
+        run: |
+          $lockFile  = "package-lock.json"
+          $hashFile  = ".node-modules-hash"
+          if (Test-Path $lockFile) {
+            $currHash = (Get-FileHash $lockFile -Algorithm SHA256).Hash
+          } else {
+            $currHash = "no-lock-file"
+          }
+          if (Test-Path $hashFile) {
+            $savedHash = (Get-Content $hashFile -Raw).Trim()
+          } else {
+            $savedHash = ""
+          }
+
+          if (($currHash -ne $savedHash) -or -not (Test-Path "node_modules/.bin")) {
+            Write-Host "Installing dependencies (packages changed or first run)..."
+            npm ci
+            Set-Content -Path $hashFile -Value $currHash
+          } else {
+            Write-Host "node_modules up to date - skipping install"
+          }
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -85,25 +83,19 @@ jobs:
       - name: Ensure model is pulled
         if: env.EMPTY_DIFF != 'true'
         run: |
-          Write-Host "Pulling phi3:mini (no-op if already cached)..."
-          ollama pull phi3:mini
+          Write-Host "Pulling deepseek-coder-v2 (no-op if already cached)..."
+          ollama pull deepseek-coder-v2
           Write-Host "Model ready"
 
       - name: Run AI review
         if: env.EMPTY_DIFF != 'true'
         run: node scripts/review.mjs --diff pr.diff
-        # ── Future: Switch to Anthropic Claude ──────────────────────────────
-        # 1. Add ANTHROPIC_API_KEY to repo Secrets (Settings → Secrets → Actions)
-        # 2. Uncomment these 2 lines and update review.mjs to call callAnthropic()
-        # env:
-        #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        # ────────────────────────────────────────────────────────────────────
         continue-on-error: true
         id: ai_review
 
       - name: Skip message (empty diff)
         if: env.EMPTY_DIFF == 'true'
-        run: echo "No changes in diff — skipping review."
+        run: echo "No changes in diff - skipping review."
 
       - name: Post review as PR comment
         if: env.EMPTY_DIFF != 'true'
@@ -117,7 +109,7 @@ jobs:
             try {
               body = fs.readFileSync('review.md', 'utf8');
             } catch {
-              body = '>  AI Code Review script failed. Check the Actions log for details.';
+              body = '> AI Code Review script failed. Check the Actions log for details.';
             }
 
             // Update existing bot comment instead of creating a new one on each push
@@ -147,7 +139,7 @@ jobs:
               });
             }
 
-      - name: h issues
+      - name: Post inline comments for critical/high issues
         if: env.EMPTY_DIFF != 'true'
         uses: actions/github-script@v7
         with:
@@ -158,7 +150,7 @@ jobs:
             try {
               report = JSON.parse(fs.readFileSync('review.json', 'utf8'));
             } catch {
-              return; // No JSON report, skip inline comments
+              return;
             }
 
             const blocking = report.issues.filter(i =>
@@ -167,16 +159,31 @@ jobs:
 
             if (blocking.length === 0) return;
 
-            const comments = blocking.map(issue => ({
-              path: issue.file,
-              line: issue.line,
-              side: 'RIGHT',
-              body: [
+            const ext  = issue => issue.file.split('.').pop() ?? 'ts';
+            const lang = issue => ['tsx','ts'].includes(ext(issue)) ? 'tsx'
+                                : ['jsx','js'].includes(ext(issue)) ? 'jsx'
+                                : ext(issue);
+
+            const comments = blocking.map(issue => {
+              const parts = [
                 `**${issue.severity === 'critical' ? '🔴 Critical' : '🟠 High'}: ${issue.title}**`,
                 issue.description,
                 issue.suggestion ? `> 💡 ${issue.suggestion}` : '',
-              ].filter(Boolean).join('\n'),
-            }));
+              ];
+              if (issue.fix) {
+                parts.push('');
+                parts.push('**Corrected code:**');
+                parts.push('```' + lang(issue));
+                parts.push(issue.fix.trim().replace(/^`+|`+$/g, ''));
+                parts.push('```');
+              }
+              return {
+                path: issue.file,
+                line: issue.line,
+                side: 'RIGHT',
+                body: parts.filter(Boolean).join('\n'),
+              };
+            });
 
             try {
               await github.rest.pulls.createReview({
@@ -195,16 +202,4 @@ jobs:
         if: env.EMPTY_DIFF != 'true'
         run: |
           echo "AI Code Review completed. Check the PR comment for the full report."
-          echo "Issues are labeled as: critical / high / medium / low / info"
-
-          # ─────────────────────────────────────────────────────────────────
-          # TO BLOCK THE PIPELINE on critical/high issues:
-          #   1. Uncomment the block below
-          #   2. Once all critical/high issues are resolved, the pipeline
-          #      will automatically pass and allow merging
-          # ─────────────────────────────────────────────────────────────────
-          # if ($env:REVIEW_OUTCOME -eq 'failure') {
-          #   echo "BLOCKED: Critical/High issues found. Fix them before merging."
-          #   exit 1
-          # }
-          # ─────────────────────────────────────────────────────────────────
+          echo "Issues are labeled as: critical / high / medium / low"
