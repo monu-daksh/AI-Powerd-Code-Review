@@ -132,9 +132,22 @@ JSON schema (follow exactly):
       "category": "security" | "bug" | "performance" | "style" | "eslint" | "typescript",
       "title": "short title (max 8 words)",
       "description": "what is wrong and exactly why it is a problem (1-3 sentences)",
-      "suggestion": "show the corrected code snippet — not vague advice, actual fixed code"
+      "suggestion": "one sentence: what to do instead",
+      "fix": "the corrected replacement code only — no explanation, just the fixed lines"
     }
   ]
+}
+
+EXAMPLE of a correct issue object:
+{
+  "file": "src/components/ActivityTable.tsx",
+  "line": 62,
+  "severity": "critical",
+  "category": "security",
+  "title": "XSS via dangerouslySetInnerHTML",
+  "description": "dangerouslySetInnerHTML renders raw HTML from row.action without sanitization, allowing stored XSS if any entry contains a script tag.",
+  "suggestion": "Render the text content directly instead of as raw HTML.",
+  "fix": "<td className=\\"px-6 py-3 text-gray-600\\">{row.action}</td>"
 }
 
 Files changed in this diff (use ONLY these exact filenames):
@@ -144,10 +157,11 @@ Rules:
 - Only report issues in lines starting with + (added lines)
 - Use the EXACT filename from the list above — never invent filenames
 - "line" MUST equal the integer inside [Lxxx] on that added line — no exceptions
-- "suggestion" MUST contain the corrected code, e.g.: \`const x = value;\` not "use const instead"
-- Flag: SQL injection, eval(), console.log in prod, any/unknown types, missing error handling
-- Flag ESLint: no-explicit-any, prefer-const, no-unused-vars
-- Flag TypeScript: implicit any, missing return types on exported functions
+- "fix" MUST be the corrected code lines only — never vague advice like "use const instead"
+- "fix" should replace only the bad line(s), not the entire file
+- Flag: dangerouslySetInnerHTML, eval(), SQL injection, console.log in prod, any/unknown types
+- Flag ESLint: no-explicit-any, prefer-const, no-unused-vars, react/no-array-index-key
+- Flag TypeScript: implicit any, missing types on exported functions
 - If code is clean: return empty issues array and score >= 85`;
 
   const userPrompt = `Review this git diff:\n\n${diff}`;
@@ -346,17 +360,21 @@ function toMarkdown(report) {
         lines.push(issue.description);
         lines.push("");
         if (issue.suggestion) {
-          lines.push(`<details><summary>💡 Suggested fix</summary>`);
+          lines.push(`> 💡 ${issue.suggestion}`);
+        }
+        if (issue.fix) {
+          const fixCode = issue.fix.trim().replace(/^`+|`+$/g, "");
+          // Detect language from the file extension for syntax highlighting
+          const ext = issue.file.split(".").pop() ?? "ts";
+          const lang = ext === "tsx" || ext === "ts" ? "tsx"
+                     : ext === "js" || ext === "jsx" ? "jsx"
+                     : ext;
           lines.push("");
-          // If the suggestion already looks like code, wrap it in a code block
-          const s = issue.suggestion.trim();
-          if (s.includes("\n") || s.includes("(") || s.includes("=") || s.startsWith("`")) {
-            lines.push("```");
-            lines.push(s.replace(/^`+|`+$/g, ""));
-            lines.push("```");
-          } else {
-            lines.push(s);
-          }
+          lines.push("<details><summary>🔧 Corrected code</summary>");
+          lines.push("");
+          lines.push("```" + lang);
+          lines.push(fixCode);
+          lines.push("```");
           lines.push("");
           lines.push("</details>");
         }

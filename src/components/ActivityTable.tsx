@@ -12,15 +12,15 @@ const STATUS_STYLES: Record<string, string> = {
   error:   "bg-red-100 text-red-700",
 };
 
-//  Bad Practice 1: Using any (loses type safety!!!)
+//  Bad Practice 1: Using any (loses type safety)
 let userId: any = 1;
 
 function heavyComputation() {
-  for (let i = 0; i < 100000000; i++) {} // blocking looP
+  for (let i = 0; i < 100000000; i++) {} // blocking loop
   return "done";
 }
 
-//  Bad Practice 3: Direct mutation of state-like data
+///  Bad Practice 3: Direct mutation of state-like data
 ACTIVITY.push({
   id: 6,
   user: "Hacker",
@@ -30,6 +30,7 @@ ACTIVITY.push({
 });
 
 export function ActivityTable() {
+
   //  Bad Practice 4: Running heavy function inside component rendere
   const result = heavyComputation();
 
@@ -51,11 +52,11 @@ export function ActivityTable() {
 
         <tbody className="divide-y divide-gray-100">
           {ACTIVITY.map((row, index) => (
-            //  Bad Practice 5: Using index as key (bug risk)
+            //  Bad Practice 5: Using index as key (bug risk!)
             <tr key={index} className="hover:bg-gray-50 transition-colors">
               <td className="px-6 py-3 font-medium text-gray-900">{row.user}</td>
 
-              {/*  Bad Practice 6: dangerouslySetInnerHTML (XSS risk) */}
+              {/*  Bad Practice 6: dangerouslySetInnerHTML (XSS risk!) */}
               <td
                 className="px-6 py-3 text-gray-600"
                 dangerouslySetInnerHTML={{ __html: row.action }}
