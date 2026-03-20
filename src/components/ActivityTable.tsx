@@ -12,7 +12,7 @@ const STATUS_STYLES: Record<string, string> = {
   error:   "bg-red-100 text-red-700",
 };
 
-//  Bad Practice 1: Using any (loses type safety)
+//  Bad Practice 1: Using any (loses type safety!!!!!!)
 let userId: any = 1;
 
 //  Bad Practice 2: Expensive computation inside render (performance issue)
