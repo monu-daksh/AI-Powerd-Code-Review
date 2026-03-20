@@ -111,25 +111,28 @@ async function callOllama(diff, changedFiles) {
   diff = trimDiff(annotateLineNumbers(diff));
   const fileList = changedFiles.map((f) => `  - ${f}`).join("\n");
 
-  const systemPrompt = `You are a senior software engineer doing a strict code review.
+  const systemPrompt = `You are a senior software engineer performing a strict code review.
 Return ONLY valid JSON — no markdown, no explanation, no code fences.
 
-Each added line has its real file line number embedded as [Lxxx] at the start.
-Use that exact number as the "line" field — do NOT guess or approximate.
+HOW TO READ LINE NUMBERS (critical):
+Every added line in the diff is prefixed with [Lxxx] where xxx is the EXACT line number
+in the new file. Example:
+  +[L42] const result = eval(userInput);
+Here the issue is on line 42. You MUST set "line": 42 — never invent or guess a number.
 
 JSON schema (follow exactly):
 {
   "summary": "2-3 sentence overall assessment",
-  "score": <number 0-100, lower = more issues>,
+  "score": <integer 0-100, lower = more issues>,
   "issues": [
     {
       "file": "exact filename as listed below",
-      "line": <line number where issue occurs>,
+      "line": <integer — copy the number from [Lxxx] on the affected line>,
       "severity": "critical" | "high" | "medium" | "low",
       "category": "security" | "bug" | "performance" | "style" | "eslint" | "typescript",
-      "title": "short title",
-      "description": "what is wrong and why it is a problem",
-      "suggestion": "exactly how to fix it"
+      "title": "short title (max 8 words)",
+      "description": "what is wrong and exactly why it is a problem (1-3 sentences)",
+      "suggestion": "show the corrected code snippet — not vague advice, actual fixed code"
     }
   ]
 }
@@ -138,12 +141,13 @@ Files changed in this diff (use ONLY these exact filenames):
 ${fileList}
 
 Rules:
-- Only report issues in lines that start with + (added lines)
+- Only report issues in lines starting with + (added lines)
 - Use the EXACT filename from the list above — never invent filenames
-- Line number = the [Lxxx] value on the affected added line — use it exactly
-- Flag: SQL injection, console.log in prod, any types, missing error handling
-- Flag ESLint: no-explicit-any, prefer-const, unused vars
-- Flag TypeScript: missing types, use of any
+- "line" MUST equal the integer inside [Lxxx] on that added line — no exceptions
+- "suggestion" MUST contain the corrected code, e.g.: \`const x = value;\` not "use const instead"
+- Flag: SQL injection, eval(), console.log in prod, any/unknown types, missing error handling
+- Flag ESLint: no-explicit-any, prefer-const, no-unused-vars
+- Flag TypeScript: implicit any, missing return types on exported functions
 - If code is clean: return empty issues array and score >= 85`;
 
   const userPrompt = `Review this git diff:\n\n${diff}`;
@@ -255,10 +259,16 @@ function parseResponse(raw) {
   }
 
   // Normalize field names — small models use different keys
+  const issues = (parsed.issues ?? parsed.problems ?? parsed.findings ?? []).map((i) => ({
+    ...i,
+    // Ensure line is always an integer — models sometimes return "42" or 42.0
+    line: parseInt(i.line, 10) || 0,
+  }));
+
   return {
     summary: parsed.summary ?? parsed.overview ?? parsed.assessment ?? "No summary provided.",
-    score  : parsed.score   ?? parsed.overall_score ?? parsed.rating ?? 70,
-    issues : parsed.issues  ?? parsed.problems ?? parsed.findings ?? [],
+    score  : parseInt(parsed.score ?? parsed.overall_score ?? parsed.rating ?? 70, 10),
+    issues,
   };
 }
 
@@ -288,42 +298,75 @@ function validateReport(report, changedFiles) {
 
 // ── Format Markdown for PR comment ──────────────────────────────────────────
 function toMarkdown(report) {
-  const icon = { critical: "🔴", high: "🟠", medium: "🟡", low: "🔵" };
+  const ICON  = { critical: "🔴", high: "🟠", medium: "🟡", low: "🔵" };
+  const LABEL = { critical: "CRITICAL", high: "HIGH", medium: "MEDIUM", low: "LOW" };
   const lines = [];
 
+  // ── Header ─────────────────────────────────────────────────────────────────
   lines.push("## AI Code Review");
   lines.push(
-    `> **Score:** ${report.score}/100 &nbsp;|&nbsp; **Model:** \`${MODEL}\` &nbsp;|&nbsp; **Issues:** ${report.issues.length}`
+    `> **Score:** ${report.score}/100 &nbsp;|&nbsp; ` +
+    `**Model:** \`${MODEL}\` &nbsp;|&nbsp; ` +
+    `**Issues:** ${report.issues.length}`
   );
   lines.push("");
-  lines.push(`**${report.summary}**`);
+  lines.push(`> ${report.summary}`);
   lines.push("");
 
   if (report.issues.length === 0) {
-    lines.push("No issues found — code looks good!");
+    lines.push("✅ No issues found — code looks good!");
+    lines.push("");
   } else {
+    // Sort: critical → high → medium → low
+    const ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sorted = [...report.issues].sort(
+      (a, b) => (ORDER[a.severity] ?? 9) - (ORDER[b.severity] ?? 9)
+    );
+
     // Group by file
     const byFile = {};
-    for (const issue of report.issues) {
+    for (const issue of sorted) {
       (byFile[issue.file] ??= []).push(issue);
     }
 
     for (const [file, issues] of Object.entries(byFile)) {
-      lines.push(`### \`${file}\``);
+      lines.push(`### 📄 \`${file}\``);
+      lines.push("");
+
       for (const issue of issues) {
         const sev  = issue.severity?.toLowerCase() ?? "low";
-        const cat  = issue.category ? ` \`[${issue.category}]\`` : "";
-        lines.push(
-          `**${icon[sev] ?? "⚪"} ${sev.toUpperCase()} — Line ${issue.line}${cat} — ${issue.title}**`
-        );
+        const icon = ICON[sev]  ?? "⚪";
+        const lbl  = LABEL[sev] ?? sev.toUpperCase();
+        const cat  = issue.category ? `\`${issue.category}\`` : "";
+        const lineRef = `[Line ${issue.line}](${file}#L${issue.line})`;
+
+        lines.push(`#### ${icon} ${lbl} &nbsp;·&nbsp; ${lineRef} &nbsp;·&nbsp; ${cat}`);
+        lines.push(`**${issue.title}**`);
+        lines.push("");
         lines.push(issue.description);
-        if (issue.suggestion) lines.push(`> 💡 *${issue.suggestion}*`);
+        lines.push("");
+        if (issue.suggestion) {
+          lines.push(`<details><summary>💡 Suggested fix</summary>`);
+          lines.push("");
+          // If the suggestion already looks like code, wrap it in a code block
+          const s = issue.suggestion.trim();
+          if (s.includes("\n") || s.includes("(") || s.includes("=") || s.startsWith("`")) {
+            lines.push("```");
+            lines.push(s.replace(/^`+|`+$/g, ""));
+            lines.push("```");
+          } else {
+            lines.push(s);
+          }
+          lines.push("");
+          lines.push("</details>");
+        }
+        lines.push("");
+        lines.push("---");
         lines.push("");
       }
     }
   }
 
-  lines.push("---");
   lines.push(`*Generated by AI Code Review · Ollama + \`${MODEL}\`*`);
   return lines.join("\n");
 }

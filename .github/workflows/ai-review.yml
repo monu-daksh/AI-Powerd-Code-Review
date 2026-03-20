@@ -34,18 +34,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0     # needed for git diff against base branch
+          clean: false       # keep node_modules on disk between runs (self-hosted runner)
 
-      # ── Cache node_modules — reinstall only when package files change ────────
-      - name: Cache node_modules
-        id: node-cache
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json', 'package.json') }}
+      # ── Smart dependency install — no tar overhead, zero-cost on cache hit ───
+      # On self-hosted runners the workspace dir persists between runs, so we
+      # store a SHA-256 hash of package-lock.json next to node_modules and only
+      # run `npm ci` when the lock file actually changed.
+      - name: Install dependencies (smart cache)
+        run: |
+          $lockFile  = "package-lock.json"
+          $hashFile  = ".node-modules-hash"
+          $currHash  = if (Test-Path $lockFile) {
+                         (Get-FileHash $lockFile -Algorithm SHA256).Hash
+                       } else { "no-lock-file" }
+          $savedHash = if (Test-Path $hashFile) {
+                         (Get-Content $hashFile -Raw).Trim()
+                       } else { "" }
 
-      - name: Install dependencies
-        if: steps.node-cache.outputs.cache-hit != 'true'
-        run: npm ci
+          if (($currHash -ne $savedHash) -or -not (Test-Path "node_modules/.bin")) {
+            Write-Host "Installing dependencies (packages changed or first run)..."
+            npm ci
+            Set-Content -Path $hashFile -Value $currHash
+          } else {
+            Write-Host "node_modules up to date — skipping install"
+          }
       # ────────────────────────────────────────────────────────────────────────
 
       # ── OPTION B only: Install Ollama on GitHub-hosted runner ────────────────
