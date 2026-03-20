@@ -15,7 +15,7 @@ import readline from "readline";
 // ── Config ─────────────────────────────────────────────────────────────────
 // Hardcoded model — change here to switch models globally
 const OLLAMA_URL = "http://localhost:11434";
-const MODEL      = "phi3:mini";   // ← single source of truth
+const MODEL      = "deepseek-coder-v2";   // ← single source of truth
 
 // ── Read diff ───────────────────────────────────────────────────────────────
 async function readInput() {
@@ -62,7 +62,38 @@ function filterDiffToSrc(diff) {
   return srcSections.join("\n");
 }
 
+// ── Annotate each added line with its real new-file line number ──────────────
+// Parses @@ hunk headers to track position, then prefixes each `+` line with
+// `[Lxxx]` so the AI can report exact line numbers without guessing.
+function annotateLineNumbers(diff) {
+  const lines = diff.split("\n");
+  const result = [];
+  let newLineNum = 0;
+
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      const m = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (m) newLineNum = parseInt(m[1], 10);
+      result.push(line);
+    } else if (line.startsWith("+++") || line.startsWith("---")) {
+      result.push(line);
+    } else if (line.startsWith("+")) {
+      result.push(`+[L${newLineNum}] ${line.slice(1)}`);
+      newLineNum++;
+    } else if (line.startsWith("-")) {
+      result.push(line); // removed lines don't move the new-file counter
+    } else if (line.startsWith(" ")) {
+      newLineNum++; // context line — advance counter but keep for trimming
+      result.push(line);
+    } else {
+      result.push(line);
+    }
+  }
+  return result.join("\n");
+}
+
 // ── Trim diff to only added lines + file/hunk headers (reduces tokens ~60%) ──
+// Must run AFTER annotateLineNumbers so [Lxxx] prefixes are preserved.
 function trimDiff(diff) {
   return diff
     .split("\n")
@@ -70,21 +101,21 @@ function trimDiff(diff) {
       line.startsWith("diff --git") ||
       line.startsWith("+++") ||
       line.startsWith("@@") ||
-      line.startsWith("+")
+      line.startsWith("+")   // includes annotated `+[Lxxx]` lines
     )
     .join("\n");
 }
 
 // ── Call Ollama ─────────────────────────────────────────────────────────────
 async function callOllama(diff, changedFiles) {
-  diff = trimDiff(diff);
+  diff = trimDiff(annotateLineNumbers(diff));
   const fileList = changedFiles.map((f) => `  - ${f}`).join("\n");
 
   const systemPrompt = `You are a senior software engineer doing a strict code review.
 Return ONLY valid JSON — no markdown, no explanation, no code fences.
 
-Give issues with exact line number from the provided numbered code.
-If unsure, say "approximate".
+Each added line has its real file line number embedded as [Lxxx] at the start.
+Use that exact number as the "line" field — do NOT guess or approximate.
 
 JSON schema (follow exactly):
 {
@@ -109,7 +140,7 @@ ${fileList}
 Rules:
 - Only report issues in lines that start with + (added lines)
 - Use the EXACT filename from the list above — never invent filenames
-- Line number = the new file line number shown in the @@ hunk header
+- Line number = the [Lxxx] value on the affected added line — use it exactly
 - Flag: SQL injection, console.log in prod, any types, missing error handling
 - Flag ESLint: no-explicit-any, prefer-const, unused vars
 - Flag TypeScript: missing types, use of any

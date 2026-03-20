@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   review:
-    name: Review with llama3
+    name: Review with deepseek-coder-v2
     # ─────────────────────────────────────────────────────────────────────────
     # OPTION A (Recommended — Free): Self-hosted runner on YOUR machine.
     #   Your machine already has Ollama + llama3 installed.
@@ -33,7 +33,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0     # needed for git diff against base branch
+
+      # ── Cache node_modules — reinstall only when package files change ────────
+      - name: Cache node_modules
+        id: node-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json', 'package.json') }}
+
+      - name: Install dependencies
+        if: steps.node-cache.outputs.cache-hit != 'true'
+        run: npm ci
+      # ────────────────────────────────────────────────────────────────────────
 
       # ── OPTION B only: Install Ollama on GitHub-hosted runner ────────────────
       # Uncomment this block if runs-on: ubuntu-latest
@@ -85,8 +98,8 @@ jobs:
       - name: Ensure model is pulled
         if: env.EMPTY_DIFF != 'true'
         run: |
-          Write-Host "Pulling phi3:mini (no-op if already cached)..."
-          ollama pull phi3:mini
+          Write-Host "Pulling deepseek-coder-v2 (no-op if already cached)..."
+          ollama pull deepseek-coder-v2
           Write-Host "Model ready"
 
       - name: Run AI review
